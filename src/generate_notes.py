@@ -83,7 +83,7 @@ head_sha = git("rev-parse", f"{head_ref}^{{commit}}")
 # A prerelease has a suffix right after its version number: SemVer's "-beta.1" (v2.0.0-beta.1,
 # api-v1.2.0-rc.1) or a PEP 440 style label (2.0.0b1, 2.0rc1, 1.4.dev2). Build metadata ("+build")
 # and tags without a major.minor version (v1, latest) count as stable.
-VERSION_CORE = re.compile(r"\d+\.\d+(?:\.\d+)*")
+VERSION_CORE = re.compile(r"(?<!\d)\d+\.\d+(?:\.\d+)*")  # (?<!\d): only try from the start of a number
 PRERELEASE_SUFFIX = re.compile(r"^(?:-.|[._]?(?:alpha|beta|rc|pre|preview|dev|a|b|c)\.?\d*(?![A-Za-z]))", re.I)
 
 
