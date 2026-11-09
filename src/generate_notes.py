@@ -80,19 +80,55 @@ tag_exists = bool(git("rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}
 head_ref = tag if tag_exists else (env("IN_TARGET") or env("GITHUB_SHA"))
 head_sha = git("rev-parse", f"{head_ref}^{{commit}}")
 
+# A prerelease has a suffix right after its version number: SemVer's "-beta.1" (v2.0.0-beta.1,
+# api-v1.2.0-rc.1) or a PEP 440 style label (2.0.0b1, 2.0rc1, 1.4.dev2). Build metadata ("+build")
+# and tags without a major.minor version (v1, latest) count as stable.
+VERSION_CORE = re.compile(r"\d+\.\d+(?:\.\d+)*")
+PRERELEASE_SUFFIX = re.compile(r"^(?:-.|[._]?(?:alpha|beta|rc|pre|preview|dev|a|b|c)\.?\d*(?![A-Za-z]))", re.I)
+
+
+def is_prerelease(name):
+    version = VERSION_CORE.search(name)
+    return bool(version and PRERELEASE_SUFFIX.match(name[version.end():]))
+
+
+def closest_tag(keep=None):
+    """The closest tag reachable from the parent of the release commit that matches tag-pattern
+    and, if given, keep(name); empty if there is none."""
+    pattern = env("IN_TAG_PATTERN")
+    matches = [f"--match={pattern}"] if pattern else []
+    if keep:
+        listed = git("tag", "--list", *([pattern] if pattern else []), check=False).splitlines()
+        # Tag names can't contain glob characters, so each name only matches itself.
+        matches = [f"--match={name}" for name in listed if name and name != tag and keep(name)]
+        if not matches:
+            return ""
+    found = git("describe", "--tags", "--abbrev=0", *matches, f"{head_sha}^", check=False)
+    return "" if found == tag else found
+
+
+release_is_prerelease = env_bool("IN_PRERELEASE") or is_prerelease(tag)
+release_type = "prerelease" if release_is_prerelease else "stable release"
 previous_tag = env("IN_PREVIOUS_TAG")
-if not previous_tag:
-    describe = ["describe", "--tags", "--abbrev=0"]
-    if env("IN_TAG_PATTERN"):
-        describe += ["--match", env("IN_TAG_PATTERN")]
-    previous_tag = git(*describe, f"{head_sha}^", check=False)
-    if previous_tag == tag:
-        previous_tag = ""
-elif not git("rev-parse", "-q", "--verify", f"refs/tags/{previous_tag}^{{commit}}", check=False):
-    sys.exit(f"::error::previous-tag '{previous_tag}' does not exist.")
+previous_reason = "the previous-tag input"
+if previous_tag:
+    if not git("rev-parse", "-q", "--verify", f"refs/tags/{previous_tag}^{{commit}}", check=False):
+        sys.exit(f"::error::previous-tag '{previous_tag}' does not exist.")
+elif not env_bool("IN_MATCH_RELEASE_TYPE"):
+    previous_tag, previous_reason = closest_tag(), "the closest tag"
+elif release_is_prerelease:
+    # A prerelease covers everything since the last prerelease; the first one since the last
+    # stable release if there has never been one.
+    previous_tag, previous_reason = closest_tag(is_prerelease), "the last prerelease"
+    if not previous_tag:
+        previous_tag, previous_reason = closest_tag(lambda name: not is_prerelease(name)), "the last stable release"
+else:
+    # A stable release covers everything since the last stable release, prereleases in between included.
+    previous_tag, previous_reason = closest_tag(lambda name: not is_prerelease(name)), "the last stable release"
 
 rev_range = f"{previous_tag}..{head_sha}" if previous_tag else head_sha
-print(f"Release: {tag} ({head_sha[:12]}), comparing against: {previous_tag or '(beginning of history)'}")
+print(f"Release: {tag} ({release_type}, {head_sha[:12]}), comparing against: "
+      + (f"{previous_tag} ({previous_reason})" if previous_tag else "(beginning of history)"))
 
 # ------------------------------------------------------------- context
 max_commits = env_num("IN_MAX_COMMITS", 200)
@@ -290,8 +326,11 @@ system_prompt = "\n".join(line.strip() for line in system_prompt.splitlines())
 user_prompt = "\n\n".join(
     [
         f"Repository: {repo}",
-        f"Release: {tag}",
+        f"Release: {tag} ({release_type})",
         f"Previous release: {previous_tag or 'none (first release)'}",
+        *(["The changes below cover everything since the last stable release, including anything already "
+           "published in prereleases since then. Describe them all as part of this release."]
+          if previous_tag and not release_is_prerelease and previous_reason == "the last stable release" else []),
         f"Commits in this release: {total_commits}",
         *([f"Additional instructions from the maintainers:\n{env('IN_INSTRUCTIONS')}"] if env("IN_INSTRUCTIONS") else []),
         *context_parts,

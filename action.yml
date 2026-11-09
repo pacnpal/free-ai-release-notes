@@ -14,8 +14,11 @@ inputs:
     description: Tag to generate notes for. Defaults to the triggering tag (github.ref_name) when the workflow runs on a tag.
     default: ''
   previous-tag:
-    description: Tag to diff against. Defaults to the closest earlier tag reachable from the release commit.
+    description: Tag to diff against. Defaults to the closest earlier tag of the same release type (see `match-release-type`).
     default: ''
+  match-release-type:
+    description: "Pick the previous tag from the same kind of release. A stable release (v2.0.0) is compared against the last stable tag, skipping prereleases (v2.0.0-beta.1), so its notes cover everything since the last stable release; a prerelease is compared against the last prerelease, or the last stable tag if there is none. A tag is a prerelease if its version has a suffix (v2.0.0-rc.1, 2.0.0b1) or `prerelease` is true. Set to false to compare against the closest tag of either kind."
+    default: 'true'
   target:
     description: Commit-ish to release when the tag does not exist yet. Defaults to the triggering commit (github.sha).
     default: ''
@@ -119,6 +122,8 @@ runs:
         IN_TAG: ${{ inputs.tag }}
         IN_PREVIOUS_TAG: ${{ inputs.previous-tag }}
         IN_TARGET: ${{ inputs.target }}
+        IN_MATCH_RELEASE_TYPE: ${{ inputs.match-release-type }}
+        IN_PRERELEASE: ${{ inputs.prerelease }}
         IN_TAG_PATTERN: ${{ inputs.tag-pattern }}
         IN_MODEL: ${{ inputs.model }}
         IN_INSTRUCTIONS: ${{ inputs.instructions }}

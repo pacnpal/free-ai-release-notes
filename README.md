@@ -254,6 +254,18 @@ Use `tag-pattern` so the previous tag is picked from the same series:
 
 or set `previous-tag` explicitly. If you also keep a moving major tag such as `v1`, use `tag-pattern: 'v*.*.*'` so it isn't picked as the previous release.
 
+### Stable releases and prereleases
+
+By default the previous tag is picked from the same kind of release (`match-release-type: true`):
+
+| Tags so far | New tag | Compared against | Why |
+| --- | --- | --- | --- |
+| `v1.0.0`, `v1.1.0-beta.1`, `v1.1.0-beta.2` | `v1.1.0` | `v1.0.0` | A stable release covers everything since the last stable one, betas included. |
+| `v1.1.0-beta.2`, `v1.1.0`, `v1.1.1` | `v1.2.0-beta.1` | `v1.1.0-beta.2` | A prerelease covers everything since the last prerelease. |
+| `v1.0.0` (no prereleases yet) | `v1.1.0-rc.1` | `v1.0.0` | With no earlier prerelease, the last stable tag is used. |
+
+A tag is a prerelease if its version has a suffix: SemVer's `-beta.1`, `-rc.1`, `-alpha` and so on (`v2.0.0-rc.1`, `api-v1.2.0-beta.1`), or a PEP 440 label (`2.0.0b1`, `2.0rc1`, `1.4.dev2`). The new release also counts as a prerelease when `prerelease: true`. Build metadata (`v1.2.3+build.5`) and tags without a `major.minor` version (`v1`, `latest`) count as stable. Set `match-release-type: false` to compare against the closest tag of either kind, or set `previous-tag` to choose it yourself.
+
 ### Reusable workflow
 
 If you'd rather call a whole job than add steps, the same logic is available as a reusable workflow. It checks out your repository itself, and takes the key as a secret:
@@ -329,7 +341,8 @@ Only `openrouter-api-key` is required.
 | --- | --- | --- |
 | `openrouter-api-key` | | **Required.** Your OpenRouter API key; pass `${{ secrets.OPENROUTER_API_KEY }}`. |
 | `tag` | triggering tag | Tag to generate notes for. Defaults to `github.ref_name` when the workflow runs on a tag push or release event; required otherwise. |
-| `previous-tag` | auto | Tag to compare against. Defaults to the closest tag reachable from the parent of the release commit. Empty on a first release (the whole history is used). |
+| `previous-tag` | auto | Tag to compare against. Defaults to the closest tag of the same release type reachable from the parent of the release commit (see `match-release-type`). Empty on a first release (the whole history is used). |
+| `match-release-type` | `true` | Pick the previous tag from the same kind of release: a stable release is compared against the last stable tag, so it covers every change since then, prereleases included; a prerelease against the last prerelease, or the last stable tag if there's none. `false` compares against the closest tag of either kind. See [Stable releases and prereleases](#stable-releases-and-prereleases). |
 | `target` | `github.sha` | Commit-ish to release when `tag` doesn't exist yet. Ignored if the tag exists. |
 | `tag-pattern` | | Glob for picking the previous tag automatically (`git describe --match`), e.g. `v*`. |
 | `model` | free Nemotron models, then `openrouter/free` | OpenRouter model ID, or several separated by commas/new lines to fall back in order. Empty means `nvidia/nemotron-3-ultra-550b-a55b:free, nvidia/nemotron-3.5-super-vl:free, openrouter/free`. See [Choosing a model](#choosing-a-model). |
@@ -380,7 +393,7 @@ The action uses the workflow's `GITHUB_TOKEN` (or `github-token`), so it can do 
 
 1. **Checks** that the OpenRouter key is set and stops with instructions if not.
 2. **Uses your checkout** of the repository, fetching the full history and tags if it is shallow. (The reusable workflow checks out your repository with full history itself.)
-3. **Works out the range**: the release tag (or `target` if the tag isn't created yet) and the previous tag.
+3. **Works out the range**: the release tag (or `target` if the tag isn't created yet) and the previous tag of the same release type: the last stable tag for a stable release, the last prerelease for a prerelease.
 4. **Collects context**: commits flagged as breaking, commit subjects and bodies (merges excluded, up to `max-commits`), a diffstat of changed files, and GitHub's generated notes when permitted, trimmed to `max-input-chars` (the flagged breaking commits are always sent in full).
 5. **Calls OpenRouter** with the models in `model` (by default Nemotron 3 Ultra, then Nemotron 3.5 Super VL, then the free router, which picks a free model at random); OpenRouter moves down the list when a model errors or is busy. The model is asked for JSON with a `title` and Markdown `notes`: Breaking Changes first, then a summary, then New Features, Bug Fixes, Performance, Documentation and Maintenance. It is told not to invent changes. The answer is parsed defensively (code fences and `<think>` blocks are stripped) and validated.
 6. **Retries** on rate limits, server errors and unusable answers with backoff (5s, 10s, 20s, ...). If a model rejects JSON mode, later attempts drop it. An HTTP `402` caused by OpenRouter's temporary in-flight spending hold is retried after its `Retry-After`; any other `402` (insufficient credits) stops retrying and uses the fallback, and so does a `429` saying the daily free-model limit is used up.
