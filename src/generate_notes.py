@@ -83,13 +83,19 @@ head_sha = git("rev-parse", f"{head_ref}^{{commit}}")
 # A prerelease has a suffix right after its version number: SemVer's "-beta.1" (v2.0.0-beta.1,
 # api-v1.2.0-rc.1) or a PEP 440 style label (2.0.0b1, 2.0rc1, 1.4.dev2). Build metadata ("+build")
 # and tags without a major.minor version (v1, latest) count as stable.
-VERSION_CORE = re.compile(r"(?<!\d)\d+\.\d+(?:\.\d+)*")  # (?<!\d): only try from the start of a number
+VERSION_CORE = re.compile(r"[0-9]+(?:\.[0-9]+)+")
 PRERELEASE_SUFFIX = re.compile(r"^(?:-.|[._]?(?:alpha|beta|rc|pre|preview|dev|a|b|c)\.?\d*(?![A-Za-z]))", re.I)
 
 
 def is_prerelease(name):
-    version = VERSION_CORE.search(name)
-    return bool(version and PRERELEASE_SUFFIX.match(name[version.end():]))
+    # Try the version pattern only where a number starts, anchored: a search would retry it from
+    # every digit of a long number, which takes quadratic time.
+    for i, char in enumerate(name):
+        if "0" <= char <= "9" and not (i and "0" <= name[i - 1] <= "9"):
+            version = VERSION_CORE.match(name, i)
+            if version:
+                return bool(PRERELEASE_SUFFIX.match(name[version.end():]))
+    return False
 
 
 def closest_tag(keep=None):
