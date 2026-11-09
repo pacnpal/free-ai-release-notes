@@ -152,7 +152,7 @@ jobs:
           fi
 
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -161,7 +161,7 @@ jobs:
       # The logic lives in this repository's action.yml. Check it out at the exact commit this
       # workflow was called at, so a caller pinned to a tag or SHA runs the matching action.
       - name: Check out free-ai-release-notes
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
